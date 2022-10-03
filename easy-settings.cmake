@@ -47,16 +47,16 @@ set(IPC ON CACHE BOOL "Application to benchmark seL4 IPC")
 set(IRQ OFF CACHE BOOL "Application to benchmark seL4 IRQs from inside the kernel")
 
 # default is ON
-set(IRQUSER ON CACHE BOOL "Application to benchmark seL4 IRQs")
+set(IRQUSER OFF CACHE BOOL "Application to benchmark seL4 IRQs")
 
 # default is ON
-set(SCHED ON CACHE BOOL "Application to benchmark seL4 scheduler")
+set(SCHED OFF CACHE BOOL "Application to benchmark seL4 scheduler")
 
 # default is ON
-set(SIGNAL ON CACHE BOOL "Application to benchmark seL4 signals")
+set(SIGNAL OFF CACHE BOOL "Application to benchmark seL4 signals")
 
 # default is ON
-set(MAPPING ON CACHE BOOL "Application to benchmark seL4 mapping a series of pages")
+set(MAPPING OFF CACHE BOOL "Application to benchmark seL4 mapping a series of pages")
 
 # default is ON
-set(SYNC ON CACHE BOOL "Application to benchmark seL4 sync")
+set(SYNC OFF CACHE BOOL "Application to benchmark seL4 sync")

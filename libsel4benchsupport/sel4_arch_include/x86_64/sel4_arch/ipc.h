@@ -165,8 +165,7 @@
 #define READ_COUNTER_BEFORE(var) do { \
     uint32_t low, high; \
     asm volatile( \
-            "cpuid \n" \
-            "rdtsc \n" \
+            "rdtscp \n" \
             "movl %%edx, %0 \n" \
             "movl %%eax, %1 \n" \
             : "=r"(high), "=r"(low) \
@@ -181,7 +180,6 @@
             "rdtscp \n" \
             "movl %%edx, %0 \n" \
             "movl %%eax, %1 \n" \
-            "cpuid \n" \
             : "=r"(high), "=r"(low) \
             : \
             : "%rax", "rbx", "%rcx", "%rdx"); \

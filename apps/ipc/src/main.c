@@ -37,19 +37,9 @@
 /* Ensure that enough warmups are performed to prevent the FPU from
  * being restored. */
 #ifdef CONFIG_FPU_MAX_RESTORES_SINCE_SWITCH
-#define WARMUPS (RUNS + CONFIG_FPU_MAX_RESTORES_SINCE_SWITCH)
+
 #else
-#define WARMUPS RUNS
-#endif
-#define OVERHEAD_RETRIES 4
-
-#ifndef CONFIG_CYCLE_COUNT
-
-#define GENERIC_COUNTER_MASK (BIT(0))
-#undef READ_COUNTER_BEFORE
-#undef READ_COUNTER_AFTER
-#define READ_COUNTER_BEFORE(x) sel4bench_get_counters(GENERIC_COUNTER_MASK, &x);
-#define READ_COUNTER_AFTER(x) sel4bench_get_counters(GENERIC_COUNTER_MASK, &x)
+#error "or,, reach out here?"
 #endif
 
 typedef struct helper_thread {
@@ -59,11 +49,6 @@ typedef struct helper_thread {
     char *argv[NUM_ARGS];
     char argv_strings[NUM_ARGS][WORD_STRING_SIZE];
 } helper_thread_t;
-
-void abort(void)
-{
-    benchmark_finished(EXIT_FAILURE);
-}
 
 static void timing_init(void)
 {
@@ -87,23 +72,6 @@ void timing_destroy(void)
     sel4bench_stop_counters(GENERIC_COUNTER_MASK);
     sel4bench_destroy();
 #endif
-}
-
-static inline void dummy_seL4_Send(seL4_CPtr ep, seL4_MessageInfo_t tag)
-{
-    (void)ep;
-    (void)tag;
-}
-
-static inline void dummy_seL4_Call(seL4_CPtr ep, seL4_MessageInfo_t tag)
-{
-    (void)ep;
-    (void)tag;
-}
-
-static inline void dummy_seL4_Reply(UNUSED seL4_CPtr reply, seL4_MessageInfo_t tag)
-{
-    (void)tag;
 }
 
 static inline void dummy_cache_func(void) {}
@@ -143,177 +111,62 @@ static inline void dummy_cache_func(void) {}
 #define CACHE_FUNC dummy_cache_func
 #endif
 
-seL4_Word ipc_call_func(int argc, char *argv[]);
-seL4_Word ipc_call_func2(int argc, char *argv[]);
-seL4_Word ipc_call_10_func(int argc, char *argv[]);
-seL4_Word ipc_call_10_func2(int argc, char *argv[]);
-seL4_Word ipc_replyrecv_func2(int argc, char *argv[]);
-seL4_Word ipc_replyrecv_func(int argc, char *argv[]);
-seL4_Word ipc_replyrecv_10_func2(int argc, char *argv[]);
-seL4_Word ipc_replyrecv_10_func(int argc, char *argv[]);
-seL4_Word ipc_send_func(int argc, char *argv[]);
-seL4_Word ipc_recv_func(int argc, char *argv[]);
+seL4_Word client(int argc, char *argv[]);
+seL4_Word server(int argc, char *argv[]);
 
 static helper_func_t bench_funcs[] = {
-    ipc_call_func,
-    ipc_call_func2,
-    ipc_call_10_func,
-    ipc_call_10_func2,
-    ipc_replyrecv_func2,
-    ipc_replyrecv_func,
-    ipc_replyrecv_10_func2,
-    ipc_replyrecv_10_func,
-    ipc_send_func,
-    ipc_recv_func
+    client,
+    server,
 };
 
-#define IPC_CALL_FUNC(name, bench_func, send_func, call_func, send_start_end, length, cache_func) \
-    seL4_Word name(int argc, char *argv[]) { \
-    uint32_t i; \
-    ccnt_t start UNUSED, end UNUSED; \
-    seL4_CPtr ep = atoi(argv[0]);\
-    seL4_CPtr result_ep = atoi(argv[1]);\
-    seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, length); \
-    call_func(ep, tag); \
-    COMPILER_MEMORY_FENCE(); \
-    for (i = 0; i < WARMUPS; i++) { \
-        cache_func(); \
-        READ_COUNTER_BEFORE(start); \
-        bench_func(ep, tag); \
-        READ_COUNTER_AFTER(end); \
-    } \
-    COMPILER_MEMORY_FENCE(); \
-    send_result(result_ep, send_start_end); \
-    send_func(ep, tag); \
-    api_wait(ep, NULL);/* block so we don't run off the stack */ \
-    return 0; \
-}
-
-IPC_CALL_FUNC(ipc_call_func, DO_REAL_CALL, seL4_Send, dummy_seL4_Call, end, 0, dummy_cache_func)
-IPC_CALL_FUNC(ipc_call_func2, DO_REAL_CALL, dummy_seL4_Send, seL4_Call, start, 0, CACHE_FUNC)
-IPC_CALL_FUNC(ipc_call_10_func, DO_REAL_CALL_10, seL4_Send, dummy_seL4_Call, end, 10, dummy_cache_func)
-IPC_CALL_FUNC(ipc_call_10_func2, DO_REAL_CALL_10, dummy_seL4_Send, seL4_Call, start, 10, CACHE_FUNC)
-
-#define IPC_REPLY_RECV_FUNC(name, bench_func, reply_func, recv_func, send_start_end, length, cache_func) \
-seL4_Word name(int argc, char *argv[]) { \
-    uint32_t i; \
-    ccnt_t start UNUSED, end UNUSED; \
-    seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, length); \
-    seL4_CPtr ep = atoi(argv[0]);\
-    seL4_CPtr result_ep = atoi(argv[1]);\
-    seL4_CPtr reply = atoi(argv[2]);\
-    if (config_set(CONFIG_KERNEL_MCS)) {\
-        api_nbsend_recv(ep, tag, ep, NULL, reply);\
-    } else {\
-        recv_func(ep, NULL, reply); \
-    }\
-    COMPILER_MEMORY_FENCE(); \
-    for (i = 0; i < WARMUPS; i++) { \
-        cache_func(); \
-        READ_COUNTER_BEFORE(start); \
-        bench_func(ep, tag, reply); \
-        READ_COUNTER_AFTER(end); \
-    } \
-    COMPILER_MEMORY_FENCE(); \
-    reply_func(reply, tag); \
-    send_result(result_ep, send_start_end); \
-    api_wait(ep, NULL); /* block so we don't run off the stack */ \
-    return 0; \
-}
-
-IPC_REPLY_RECV_FUNC(ipc_replyrecv_func2, DO_REAL_REPLY_RECV, api_reply, api_recv, end, 0, dummy_cache_func)
-IPC_REPLY_RECV_FUNC(ipc_replyrecv_func, DO_REAL_REPLY_RECV, dummy_seL4_Reply, api_recv, start, 0, CACHE_FUNC)
-IPC_REPLY_RECV_FUNC(ipc_replyrecv_10_func2, DO_REAL_REPLY_RECV_10, api_reply, api_recv, end, 10, dummy_cache_func)
-IPC_REPLY_RECV_FUNC(ipc_replyrecv_10_func, DO_REAL_REPLY_RECV_10, dummy_seL4_Reply, api_recv, start, 10, CACHE_FUNC)
-
-seL4_Word
-ipc_recv_func(int argc, char *argv[])
-{
-    uint32_t i;
-    ccnt_t start UNUSED, end UNUSED;
-    seL4_CPtr ep = atoi(argv[0]);
-    seL4_CPtr result_ep = atoi(argv[1]);
-    UNUSED seL4_CPtr reply = atoi(argv[2]);
-
-    COMPILER_MEMORY_FENCE();
-    for (i = 0; i < WARMUPS; i++) {
-        READ_COUNTER_BEFORE(start);
-        DO_REAL_RECV(ep, reply);
-        READ_COUNTER_AFTER(end);
-    }
-    COMPILER_MEMORY_FENCE();
-    DO_REAL_RECV(ep, reply);
-    send_result(result_ep, end);
-    return 0;
-}
-
-seL4_Word ipc_send_func(int argc, char *argv[])
-{
-    uint32_t i;
+#define ITER 10000000
+seL4_Word client(int argc, char *argv[]) {
+    uint32_t i,j;
+    //ccnt_t cnt = 0;
     ccnt_t start UNUSED, end UNUSED;
     seL4_CPtr ep = atoi(argv[0]);
     seL4_CPtr result_ep = atoi(argv[1]);
     seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0);
-    COMPILER_MEMORY_FENCE();
-    for (i = 0; i < WARMUPS; i++) {
+    seL4_Call(ep, tag);
+    for (j = 0; j < 10; j++) {
+        COMPILER_MEMORY_FENCE();
         READ_COUNTER_BEFORE(start);
-        DO_REAL_SEND(ep, tag);
+        for (i = 0; i < ITER; i++) {
+            //seL4_SetMR(0, cnt + 0xBEEF00000000);
+            //tag = seL4_MessageInfo_new(0, 0, 0, 1);
+            seL4_Call(ep, tag);
+            //cnt++;
+        }
         READ_COUNTER_AFTER(end);
+        COMPILER_MEMORY_FENCE();
+        send_result(result_ep, (end-start)/ITER);
     }
-    COMPILER_MEMORY_FENCE();
-    send_result(result_ep, start);
-    DO_REAL_SEND(ep, tag);
     return 0;
 }
 
-#define MEASURE_OVERHEAD(op, dest, decls) do { \
-    uint32_t i; \
-    timing_init(); \
-    for (i = 0; i < OVERHEAD_RETRIES; i++) { \
-        uint32_t j; \
-        for (j = 0; j < RUNS; j++) { \
-            uint32_t k; \
-            decls; \
-            ccnt_t start, end; \
-            COMPILER_MEMORY_FENCE(); \
-            for (k = 0; k < WARMUPS; k++) { \
-                READ_COUNTER_BEFORE(start); \
-                op; \
-                READ_COUNTER_AFTER(end); \
-            } \
-            COMPILER_MEMORY_FENCE(); \
-            dest[j] = end - start; \
-        } \
-        if (results_stable(dest, RUNS)) break; \
-    } \
-    timing_destroy(); \
-} while(0)
-
-static void measure_overhead(ipc_results_t *results)
-{
-    MEASURE_OVERHEAD(DO_NOP_CALL(0, tag),
-                     results->overhead_benchmarks[CALL_OVERHEAD],
-                     seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0));
-    MEASURE_OVERHEAD(DO_NOP_REPLY_RECV(0, tag, 0),
-                     results->overhead_benchmarks[REPLY_RECV_OVERHEAD],
-                     seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0));
-    MEASURE_OVERHEAD(DO_NOP_SEND(0, tag),
-                     results->overhead_benchmarks[SEND_OVERHEAD],
-                     seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0));
-    MEASURE_OVERHEAD(DO_NOP_RECV(0, 0),
-                     results->overhead_benchmarks[RECV_OVERHEAD],
-                     {});
-    MEASURE_OVERHEAD(DO_NOP_CALL_10(0, tag10),
-                     results->overhead_benchmarks[CALL_10_OVERHEAD],
-                     seL4_MessageInfo_t tag10 = seL4_MessageInfo_new(0, 0, 0, 10));
-    MEASURE_OVERHEAD(DO_NOP_REPLY_RECV_10(0, tag10, 0),
-                     results->overhead_benchmarks[REPLY_RECV_10_OVERHEAD],
-                     seL4_MessageInfo_t tag10 = seL4_MessageInfo_new(0, 0, 0, 10));
+seL4_Word server(int argc, char *argv[]) {
+    ccnt_t message;
+    ccnt_t cnt = 0;
+    ccnt_t start UNUSED, end UNUSED;
+    seL4_MessageInfo_t tag = seL4_MessageInfo_new(0, 0, 0, 0);
+    seL4_CPtr ep = atoi(argv[0]);
+    seL4_CPtr result_ep = atoi(argv[1]);
+    seL4_CPtr reply = atoi(argv[2]);
+    seL4_Recv(ep, &reply);
+    while(1) {
+        seL4_ReplyRecv(ep, tag, &reply);
+        //message = seL4_GetMR(0);
+        //if (message != (0xBEEF00000000 + cnt)) {
+            //cnt += 0xDEAD000000000000;
+            //send_result(result_ep, cnt);
+            //return 0;
+        //}
+        //cnt++;
+    }
+    return 0;
 }
 
 void run_bench(env_t *env, cspacepath_t result_ep_path, seL4_CPtr ep,
-               const benchmark_params_t *params,
-               ccnt_t *ret1, ccnt_t *ret2,
                helper_thread_t *client, helper_thread_t *server)
 {
 
@@ -324,33 +177,22 @@ void run_bench(env_t *env, cspacepath_t result_ep_path, seL4_CPtr ep,
                                         server->argv, 1);
     ZF_LOGF_IF(error, "Failed to spawn server\n");
 
-    if (config_set(CONFIG_KERNEL_MCS) && params->server_fn != IPC_RECV_FUNC) {
-        /* wait for server to tell us its initialised */
-        seL4_Wait(ep, NULL);
-
-        if (params->passive) {
-            /* convert server to passive */
-            error = api_sc_unbind_object(server->process.thread.sched_context.cptr,
-                                         server->process.thread.tcb.cptr);
-            ZF_LOGF_IF(error, "Failed to convert server to passive");
-        }
-    }
-
     error = benchmark_spawn_process(&client->process, &env->slab_vka, &env->vspace, NUM_ARGS, client->argv, 1);
     ZF_LOGF_IF(error, "Failed to spawn client\n");
 
     /* get results */
-    *ret1 = get_result(result_ep_path.capPtr);
-
-    if (config_set(CONFIG_KERNEL_MCS) && params->server_fn != IPC_RECV_FUNC && params->passive) {
-        /* convert server to active so it can send us the result */
-        error = api_sc_bind(server->process.thread.sched_context.cptr,
-                            server->process.thread.tcb.cptr);
-        ZF_LOGF_IF(error, "Failed to convert server to active");
+    uint64_t cycle[10];
+    for (int i = 0; i < 10; i++) {
+        cycle[i] = get_result(result_ep_path.capPtr);
+        //if (cycle & 0xDEAD000000000000) {
+        //    ZF_LOGE("%d reply: %lX, failed at: %lu\n", i, cycle, cycle-0xDEAD000000000000);
+        //} else {
+            //ZF_LOGE("%lu", cycle);
+        //}
     }
-
-    *ret2 = get_result(result_ep_path.capPtr);
-
+    for (int i = 0; i < 10; i++) {
+        ZF_LOGE("%lu", cycle[i]);
+    }
     /* clean up - clean server first in case it is sharing the client's cspace and vspace */
     seL4_TCB_Suspend(client->process.thread.tcb.cptr);
     seL4_TCB_Suspend(server->process.thread.tcb.cptr);
@@ -365,10 +207,6 @@ void CONSTRUCTOR(MUSLCSYS_WITH_VSYSCALL_PRIORITY) init_env(void)
     static size_t object_freq[seL4_ObjectTypeCount] = {
         [seL4_TCBObject] = 4,
         [seL4_EndpointObject] = 2,
-#ifdef CONFIG_KERNEL_MCS
-        [seL4_SchedContextObject] = 4,
-        [seL4_ReplyObject] = 4
-#endif
     };
 
     env = benchmark_get_env(
@@ -379,6 +217,7 @@ void CONSTRUCTOR(MUSLCSYS_WITH_VSYSCALL_PRIORITY) init_env(void)
           );
 }
 
+static bool set_affinity = false;
 int main(int argc, char **argv)
 {
     vka_object_t ep, result_ep;
@@ -400,14 +239,10 @@ int main(int argc, char **argv)
     }
     vka_cspace_make_path(&env->slab_vka, result_ep.cptr, &result_ep_path);
 
-    /* measure benchmarking overhead */
-    measure_overhead(results);
-
-    helper_thread_t client, server_thread, server_process;
+    helper_thread_t client, server_process;
 
     benchmark_shallow_clone_process(env, &client.process, seL4_MinPrio, 0, "client");
     benchmark_shallow_clone_process(env, &server_process.process, seL4_MinPrio, 0, "server process");
-    benchmark_configure_thread_in_process(env, &client.process, &server_thread.process, seL4_MinPrio, 0, "server thread");
 
     client.ep = sel4utils_copy_path_to_process(&client.process, ep_path);
     client.result_ep = sel4utils_copy_path_to_process(&client.process, result_ep_path);
@@ -415,59 +250,33 @@ int main(int argc, char **argv)
     server_process.ep = sel4utils_copy_path_to_process(&server_process.process, ep_path);
     server_process.result_ep = sel4utils_copy_path_to_process(&server_process.process, result_ep_path);
 
-    server_thread.ep = client.ep;
-    server_thread.result_ep = client.result_ep;
-
     sel4utils_create_word_args(client.argv_strings, client.argv, NUM_ARGS, client.ep, client.result_ep, 0);
     sel4utils_create_word_args(server_process.argv_strings, server_process.argv, NUM_ARGS,
                                server_process.ep, server_process.result_ep, SEL4UTILS_REPLY_SLOT);
-    sel4utils_create_word_args(server_thread.argv_strings, server_thread.argv, NUM_ARGS,
-                               server_thread.ep, server_thread.result_ep, SEL4UTILS_REPLY_SLOT);
 
     /* run the benchmark */
     seL4_CPtr auth = simple_get_tcb(&env->simple);
-    ccnt_t start, end;
-    for (int i = 0; i < RUNS; i++) {
-        int j;
-        ZF_LOGI("--------------------------------------------------\n");
-        ZF_LOGI("Doing iteration %d\n", i);
-        ZF_LOGI("--------------------------------------------------\n");
-        for (j = 0; j < ARRAY_SIZE(benchmark_params); j++) {
-            const struct benchmark_params *params = &benchmark_params[j];
-            ZF_LOGI("%s\t: IPC duration (%s), client prio: %3d server prio %3d, %s vspace, %s, length %2d\n",
-                    params->name,
-                    params->direction == DIR_TO ? "client --> server" : "server --> client",
-                    params->client_prio, params->server_prio,
-                    params->same_vspace ? "same" : "diff",
-                    (config_set(CONFIG_KERNEL_MCS) && params->passive) ? "passive" : "active", params->length);
 
-            /* set up client for benchmark */
-            int error = seL4_TCB_SetPriority(client.process.thread.tcb.cptr, auth, params->client_prio);
-            ZF_LOGF_IF(error, "Failed to set client prio");
-            client.process.entry_point = bench_funcs[params->client_fn];
+    /* set up client for benchmark */
+    int error = seL4_TCB_SetPriority(client.process.thread.tcb.cptr, auth, seL4_MaxPrio - 1);
+    ZF_LOGF_IF(error, "Failed to set client prio");
+    client.process.entry_point = bench_funcs[0];
 
-            if (params->same_vspace) {
-                error = seL4_TCB_SetPriority(server_thread.process.thread.tcb.cptr, auth, params->server_prio);
-                assert(error == seL4_NoError);
-                server_thread.process.entry_point = bench_funcs[params->server_fn];
-            } else {
-                error = seL4_TCB_SetPriority(server_process.process.thread.tcb.cptr, auth, params->server_prio);
-                assert(error == seL4_NoError);
-                server_process.process.entry_point = bench_funcs[params->server_fn];
-            }
+    error = seL4_TCB_SetPriority(server_process.process.thread.tcb.cptr, auth, seL4_MaxPrio - 1);
+    assert(error == seL4_NoError);
+    server_process.process.entry_point = bench_funcs[1];
 
-            run_bench(env, result_ep_path, ep_path.capPtr, params, &end, &start, &client,
-                      params->same_vspace ? &server_thread : &server_process);
+#if 1
+	/* set affinity */
+    set_affinity = true;
+	error = seL4_TCB_SetAffinity(server_process.process.thread.tcb.cptr, 2);
+    ZF_LOGF_IF(error, "Failed to set affinity of server\n");
+	error = seL4_TCB_SetAffinity(client.process.thread.tcb.cptr, 4);
+    ZF_LOGF_IF(error, "Failed to set affinity of client\n");
+#endif
 
-            if (end > start) {
-                results->benchmarks[j][i] = end - start;
-            } else {
-                results->benchmarks[j][i] = start - end;
-            }
-        }
-    }
+    ZF_LOGE("run bench, iter: %d, affinity %sset", ITER, set_affinity ? "":"not ");
+    run_bench(env, result_ep_path, ep_path.capPtr, &client, &server_process);
 
-    /* done -> results are stored in shared memory so we can now return */
-    benchmark_finished(EXIT_SUCCESS);
     return 0;
 }
