@@ -9,7 +9,7 @@
 #include <sel4utils/process.h>
 
 #define OVERHEAD_BENCH_PARAMS(n) { .name = n }
-#define RUNS 1
+#define RUNS 5000
 
 enum overheads {
     CALL_OVERHEAD,
@@ -30,10 +30,16 @@ typedef enum dir {
 } dir_t;
 
 typedef enum {
-    IPC_CALL_FUNC2 = 0,
-    IPC_REPLYRECV_FUNC2 = 1,
-    IPC_CALL_FUNC = 2,
-    IPC_REPLYRECV_FUNC = 3,
+    IPC_CALL_FUNC = 0,
+    IPC_CALL_FUNC2 = 1,
+    IPC_CALL_10_FUNC = 2,
+    IPC_CALL_10_FUNC2 = 3,
+    IPC_REPLYRECV_FUNC2 = 4,
+    IPC_REPLYRECV_FUNC = 5,
+    IPC_REPLYRECV_10_FUNC2 = 6,
+    IPC_REPLYRECV_10_FUNC = 7,
+    IPC_SEND_FUNC = 8,
+    IPC_RECV_FUNC = 9
 } helper_func_id_t;
 
 typedef seL4_Word(*helper_func_t)(int argc, char *argv[]);
@@ -89,7 +95,7 @@ static const benchmark_params_t benchmark_params[] = {
         .length = 0,
         .overhead_id = REPLY_RECV_OVERHEAD,
         .passive = true,
-    }
+    },
 };
 
 static const struct overhead_benchmark_params overhead_benchmark_params[] = {
